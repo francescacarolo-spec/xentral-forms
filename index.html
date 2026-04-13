@@ -55,11 +55,12 @@
 <main>
   <h1>Xentral: New Item Request</h1>
   <div class="sub">Submit one or more new articles. Pick a category — the form adapts to the fields needed for that type.</div>
+  <div id="edit-banner" style="display:none;background:#fef3c7;border:1px solid #fcd34d;color:#92400e;padding:10px 14px;border-radius:6px;margin-bottom:16px;font-size:14px"></div>
 
   <div class="card">
     <h2>Submission</h2>
     <div class="meta">
-      <div><label>Requester name <span class="req">*</span></label><input id="requester" required></div>
+      <div><label>Your work email <span class="req">*</span></label><input id="requester" type="email" placeholder="name@petsdeli.de" pattern=".+@petsdeli\.de$" title="Use your @petsdeli.de email" required><div class="help">Used to identify you in Slack and notify you about this request.</div></div>
       <div><label>Deadline <span class="req">*</span></label><input id="deadline" type="date" required></div>
       <div><label>Category <span class="req">*</span></label>
         <select id="category" required>

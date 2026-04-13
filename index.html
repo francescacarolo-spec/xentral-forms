@@ -1,0 +1,447 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Xentral: New Item Request</title>
+<style>
+  :root { --bg:#fafafa; --card:#fff; --border:#e3e3e3; --muted:#777; --accent:#2563eb; --danger:#dc2626; --ok:#16a34a; }
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, system-ui, Segoe UI, Roboto, sans-serif; background: var(--bg); margin: 0; padding: 24px; color: #1a1a1a; }
+  main { max-width: 1280px; margin: 0 auto; }
+  h1 { margin: 0 0 4px; font-size: 22px; }
+  .sub { color: var(--muted); margin-bottom: 24px; font-size: 14px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 20px; margin-bottom: 16px; }
+  .card h2 { margin: 0 0 12px; font-size: 16px; color: #333; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+  label { display: block; font-size: 12px; color: #555; margin-bottom: 4px; font-weight: 500; }
+  label .req { color: var(--danger); }
+  input, select, textarea { width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 14px; font-family: inherit; background: #fff; }
+  input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: var(--accent); }
+  button { cursor: pointer; padding: 8px 14px; border: 1px solid var(--border); background: #fff; border-radius: 6px; font-size: 14px; font-family: inherit; }
+  button:hover { background: #f3f3f3; }
+  button.primary { background: var(--accent); color: white; border-color: var(--accent); }
+  button.primary:hover { background: #1d4ed8; }
+  button.primary:disabled { opacity: 0.6; cursor: not-allowed; }
+  button.danger { background: white; color: var(--danger); border-color: var(--danger); }
+  button.ghost { background: transparent; border: 1px dashed var(--border); color: var(--muted); }
+  .item-block { border: 1px solid var(--border); border-radius: 8px; padding: 14px; margin-bottom: 14px; background: #fcfcfc; }
+  .item-header { display: flex; gap: 10px; align-items: end; margin-bottom: 10px; }
+  .item-header > div { flex: 1; }
+  .item-header > button { flex: 0; }
+  .scroll-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 6px; background: #fff; }
+  table.variants { border-collapse: separate; border-spacing: 0; font-size: 13px; min-width: 100%; }
+  table.variants th { text-align: left; padding: 6px 8px; background: #f6f6f6; border-bottom: 1px solid var(--border); font-weight: 600; font-size: 12px; color: #555; white-space: nowrap; }
+  table.variants th .apply { display: block; font-weight: 400; font-size: 11px; color: var(--accent); cursor: pointer; user-select: none; margin-top: 2px; }
+  table.variants th .apply:hover { text-decoration: underline; }
+  table.variants td { padding: 4px; border-bottom: 1px solid #f0f0f0; vertical-align: top; }
+  table.variants td input, table.variants td select { padding: 6px 8px; font-size: 13px; min-width: 110px; }
+  table.variants td.actions { width: 1%; }
+  /* Sticky first column (variant name) */
+  table.variants thead th:first-child,
+  table.variants tbody td:first-child { position: sticky; left: 0; background: #fff; z-index: 2; box-shadow: 2px 0 0 -1px var(--border); }
+  table.variants thead th:first-child { background: #f6f6f6; }
+  .add-row { margin-top: 8px; }
+  .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+  .meta { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .status { padding: 12px; border-radius: 6px; margin-top: 14px; font-size: 14px; }
+  .status.ok { background: #ecfdf5; color: var(--ok); border: 1px solid #a7f3d0; }
+  .status.err { background: #fef2f2; color: var(--danger); border: 1px solid #fecaca; white-space: pre-wrap; }
+  .help { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .name-preview { font-size: 11px; color: var(--accent); padding: 4px 8px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Xentral: New Item Request</h1>
+  <div class="sub">Submit one or more new articles. Pick a category — the form adapts to the fields needed for that type.</div>
+
+  <div class="card">
+    <h2>Submission</h2>
+    <div class="meta">
+      <div><label>Requester name <span class="req">*</span></label><input id="requester" required></div>
+      <div><label>Deadline <span class="req">*</span></label><input id="deadline" type="date" required></div>
+      <div><label>Category <span class="req">*</span></label>
+        <select id="category" required>
+          <option value="">— pick one —</option>
+          <option value="POS">1 — POS New Articles</option>
+          <option value="BASE">2.1 — BASE (stock items) New Articles</option>
+          <option value="BUNDLES">3.1 — BUNDLES (just-in-time) New Articles</option>
+          <option value="NONFOOD">4 — NON-FOOD (stock items) New Articles</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <div id="items-card" class="card" style="display:none">
+    <div class="toolbar">
+      <h2 style="margin:0">Items <small style="color:var(--muted);font-weight:400">(each item = a Matrix in Xentral with at least 1 variant, up to 10)</small></h2>
+      <button id="add-item" class="primary">+ Add item</button>
+    </div>
+    <div id="items"></div>
+  </div>
+
+  <div id="submit-bar" style="display:none">
+    <button id="submit" class="primary" style="padding:12px 24px;font-size:15px">Submit request</button>
+    <div id="status"></div>
+  </div>
+</main>
+
+<script>
+// =============================================================
+// CONFIG: webhook + field sets per category
+// =============================================================
+const N8N_WEBHOOK = 'https://petsdelicompany.app.n8n.cloud/webhook/xentral-new-item-json';
+
+// Category configs generated from Inputs fields.xlsx (all fields required)
+const MAX_VARIANTS = 10;
+
+// Shared dropdown option sets
+const PET_TYPES         = ['Dog', 'Cat', 'Dog and Cat'];
+const TK_OPTIONS        = ['Non-TK', 'TK'];
+const VAT_OPTIONS       = ['normal', 'reduced'];
+const STATUS_OPTIONS_DE = ['Aktiv', 'Upcoming'];
+const STATUS_OPTIONS_CH = ['Aktiv', 'Upcoming', 'Inaktiv'];
+const PROD_TYPE_OPTS    = ['Einzelprodukt', 'Mehrprodukt', 'Rohstoff'];
+
+// Conditional-required rules (evaluated at submit time)
+//   variantRule(variantRow, allVariants) => bool — if returns true, field is required
+//   mainRule(mainRow, allVariants)       => bool
+const RULES = {
+  // Variant: Selling Price CHF required unless THIS variant's Status (CH) is Inaktiv
+  chPriceRequired: (variantRow) =>
+    variantRow['status_ch'] !== 'Inaktiv' && variantRow['status_pos_ch'] !== 'Inaktiv',
+  // Main: VAT rate CH required unless ALL variants have Status (CH) = Inaktiv
+  chVatRequired: (_main, variants) =>
+    variants.some(v => v['status_ch'] !== 'Inaktiv' && v['status_pos_ch'] !== 'Inaktiv'),
+};
+
+const CATEGORIES = {
+  POS: {
+    label: '1 — POS New Articles',
+    main: [
+      { label: 'Name',                           type: 'text' },
+      { label: 'Supplier',                       type: 'dropdown', options: ['Greencat', 'Hoopo'] },
+      { label: 'Pet Type',                       type: 'dropdown', options: PET_TYPES },
+      { label: 'Product Category',               type: 'dropdown', options: ['Others', 'Snacks'] },
+      { label: 'TK/Non TK',                      type: 'dropdown', options: TK_OPTIONS },
+      { label: 'Verkaufskanal',                  type: 'dropdown', options: ['POS', '-'] },
+      { label: 'VAT rate DE',                    type: 'dropdown', options: VAT_OPTIONS },
+      { label: 'VAT rate CH',                    type: 'dropdown', options: VAT_OPTIONS, requiredIf: RULES.chVatRequired },
+      { label: 'Standard delivery time (weeks)', type: 'number' },
+    ],
+    variant: [
+      { label: 'Variant',                   type: 'text' },
+      { label: 'Product Type',              type: 'dropdown', options: PROD_TYPE_OPTS },
+      { label: 'Status POS DE',             type: 'dropdown', options: STATUS_OPTIONS_DE },
+      { label: 'Status POS CH',             type: 'dropdown', options: STATUS_OPTIONS_CH },
+      { label: 'EAN',                       type: 'number' },
+      { label: 'MOQ',                       type: 'number' },
+      { label: 'Selling Price EUR (net)',   type: 'number' },
+      { label: 'Selling Price CHF (net)',   type: 'number', requiredIf: RULES.chPriceRequired },
+      { label: 'BASE per PU (pcs)',         type: 'number' },
+    ],
+  },
+  BASE: {
+    label: '2.1 — BASE (stock items) New Articles',
+    main: [
+      { label: 'Name',                           type: 'text' },
+      { label: 'Supplier',                       type: 'dropdown', options: ['Landguth', 'Asian Group'] },
+      { label: 'Pet Type',                       type: 'dropdown', options: PET_TYPES },
+      { label: 'Product Category',               type: 'dropdown', options: ['Nassfutter', 'Snack', 'Trockenfutter'] },
+      { label: 'TK/Non TK',                      type: 'dropdown', options: TK_OPTIONS },
+      { label: 'VAT rate DE',                    type: 'dropdown', options: VAT_OPTIONS },
+      { label: 'VAT rate AT',                    type: 'dropdown', options: VAT_OPTIONS },
+      { label: 'VAT rate CH',                    type: 'dropdown', options: VAT_OPTIONS, requiredIf: RULES.chVatRequired },
+      { label: 'Standard delivery time (weeks)', type: 'number' },
+    ],
+    variant: [
+      { label: 'Variant',       type: 'text' },
+      { label: 'Product Type',  type: 'dropdown', options: PROD_TYPE_OPTS },
+      { label: 'Status DE',     type: 'dropdown', options: STATUS_OPTIONS_DE },
+      { label: 'Status CH',     type: 'dropdown', options: STATUS_OPTIONS_CH },
+    ],
+  },
+  BUNDLES: {
+    label: '3.1 — BUNDLES (just-in-time) New Articles',
+    main: [
+      { label: 'Name',                           type: 'text' },
+      { label: 'Pet Type',                       type: 'dropdown', options: PET_TYPES },
+      { label: 'Product Category',               type: 'dropdown', options: ['Nassfutter', 'Snack', 'Trockenfutter'] },
+      { label: 'TK/Non TK',                      type: 'dropdown', options: TK_OPTIONS },
+      { label: 'VAT rate DE',                    type: 'dropdown', options: VAT_OPTIONS },
+      { label: 'VAT rate AT',                    type: 'dropdown', options: VAT_OPTIONS },
+      { label: 'VAT rate CH',                    type: 'dropdown', options: VAT_OPTIONS, requiredIf: RULES.chVatRequired },
+      { label: 'Standard delivery time (weeks)', type: 'number' },
+    ],
+    variant: [
+      { label: 'Variant',                 type: 'text' },
+      { label: 'Status DE',               type: 'dropdown', options: STATUS_OPTIONS_DE },
+      { label: 'Status CH',               type: 'dropdown', options: STATUS_OPTIONS_CH },
+      { label: 'Selling Price EUR (net)', type: 'number' },
+      { label: 'Selling Price CHF (net)', type: 'number', requiredIf: RULES.chPriceRequired },
+    ],
+  },
+  NONFOOD: {
+    label: '4 — NON-FOOD (stock items) New Articles',
+    main: [
+      { label: 'Name',                           type: 'text' },
+      { label: 'Supplier',                       type: 'dropdown', options: ['Greencat', 'Hoopo'] },
+      { label: 'Pet Type',                       type: 'dropdown', options: PET_TYPES },
+      { label: 'Product Category',               type: 'dropdown', options: ['Others', 'Snacks'] },
+      { label: 'TK/Non TK',                      type: 'dropdown', options: TK_OPTIONS },
+      { label: 'VAT rate DE',                    type: 'dropdown', options: VAT_OPTIONS },
+      { label: 'VAT rate AT',                    type: 'dropdown', options: VAT_OPTIONS },
+      { label: 'VAT rate CH',                    type: 'dropdown', options: VAT_OPTIONS, requiredIf: RULES.chVatRequired },
+      { label: 'Standard delivery time (weeks)', type: 'number' },
+    ],
+    variant: [
+      { label: 'Variant',                 type: 'text' },
+      { label: 'Product Type',            type: 'dropdown', options: PROD_TYPE_OPTS },
+      { label: 'Status DE',               type: 'dropdown', options: STATUS_OPTIONS_DE },
+      { label: 'Status CH',               type: 'dropdown', options: STATUS_OPTIONS_CH },
+      { label: 'EAN',                     type: 'number' },
+      { label: 'MOQ',                     type: 'number' },
+      { label: 'Gross Weight (kg)',       type: 'number' },
+      { label: 'Net Weight (kg)',         type: 'number' },
+      { label: 'Length (cm)',             type: 'number' },
+      { label: 'Wide (cm)',               type: 'number' },
+      { label: 'Height (cm)',             type: 'number' },
+      { label: 'Selling Price EUR (net)', type: 'number' },
+      { label: 'Selling Price CHF (net)', type: 'number', requiredIf: RULES.chPriceRequired },
+      { label: 'BASE per PU (pcs)',       type: 'number' },
+    ],
+  },
+};
+
+// Helper: slugify label → stable key for state / payload
+const slug = s => s.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+for (const cat of Object.values(CATEGORIES)) {
+  for (const f of [...cat.main, ...cat.variant]) {
+    f.key = slug(f.label);
+    // "required" is the effective requirement; `requiredIf` (if present) overrides at submit time.
+    f.required = true;
+  }
+}
+
+// =============================================================
+// STATE + RENDER
+// =============================================================
+// items: [{ main: {field_key: value}, variants: [{field_key: value}, ...] }]
+const state = { category: null, items: [] };
+
+const $ = s => document.querySelector(s);
+const el = (tag, attrs = {}, ...kids) => {
+  const e = document.createElement(tag);
+  for (const k in attrs) {
+    if (k === 'class') e.className = attrs[k];
+    else if (k.startsWith('on')) e.addEventListener(k.slice(2).toLowerCase(), attrs[k]);
+    else if (attrs[k] != null) e.setAttribute(k, attrs[k]);
+  }
+  for (const c of kids) e.append(c instanceof Node ? c : document.createTextNode(c ?? ''));
+  return e;
+};
+
+function makeInput(f, currentValue, onChange) {
+  let inp;
+  if (f.type === 'dropdown') {
+    inp = el('select');
+    inp.append(el('option', { value: '' }, '—'));
+    for (const v of f.options) {
+      const opt = el('option', { value: v }, v);
+      if (currentValue === v) opt.setAttribute('selected', '');
+      inp.append(opt);
+    }
+  } else {
+    inp = el('input', { type: f.type });
+    if (f.type === 'number') inp.setAttribute('step', 'any');
+    if (currentValue != null) inp.value = currentValue;
+  }
+  inp.addEventListener('input', e => onChange(e.target.value));
+  inp.addEventListener('change', e => onChange(e.target.value));
+  return inp;
+}
+
+function applyToAllVariants(itemIdx, colKey, value) {
+  state.items[itemIdx].variants.forEach(v => v[colKey] = value);
+  renderItems();
+}
+
+function renderItems() {
+  const cat = CATEGORIES[state.category];
+  const root = $('#items');
+  root.innerHTML = '';
+
+  state.items.forEach((item, i) => {
+    const block = el('div', { class: 'item-block' });
+
+    // --- Block header ---
+    block.append(el('div', { class: 'toolbar' },
+      el('strong', {}, `Item ${i + 1}`),
+      state.items.length > 1
+        ? el('button', { class: 'danger', onclick: () => { state.items.splice(i, 1); renderItems(); } }, 'Remove item')
+        : el('span')
+    ));
+
+    // --- Main item row ---
+    block.append(el('div', { class: 'help', style: 'margin-bottom:6px;font-weight:600;color:#333' }, 'Main item (Matrix)'));
+    const mainTable = el('table', { class: 'variants' });
+    const mthead = el('thead'); const mtr = el('tr');
+    cat.main.forEach(f => {
+      const th = el('th', {}, f.label + (f.required ? ' *' : ''));
+      if (f.requiredIf) th.setAttribute('title', 'Required unless all variants have Status (CH) = Inaktiv');
+      if (f.requiredIf) th.append(el('span', { class: 'help', style: 'font-weight:400' }, ' (conditional)'));
+      mtr.append(th);
+    });
+    mthead.append(mtr); mainTable.append(mthead);
+    const mtb = el('tbody'); const mrow = el('tr');
+    cat.main.forEach(f => {
+      const td = el('td');
+      td.append(makeInput(f, item.main[f.key], v => { item.main[f.key] = v; }));
+      mrow.append(td);
+    });
+    mtb.append(mrow); mainTable.append(mtb);
+    const mWrap = el('div', { class: 'scroll-wrap' }); mWrap.append(mainTable);
+    block.append(mWrap);
+
+    // --- Variants table ---
+    block.append(el('div', { class: 'help', style: 'margin:14px 0 6px;font-weight:600;color:#333' },
+      `Variants (at least 1, max ${MAX_VARIANTS})`));
+    const vTable = el('table', { class: 'variants' });
+    const vthead = el('thead'); const vthr = el('tr');
+    cat.variant.forEach((f, idx) => {
+      const th = el('th', {}, f.label + (f.required ? ' *' : ''));
+      if (f.requiredIf) {
+        th.setAttribute('title', 'Required unless this variant Status (CH) = Inaktiv');
+        th.append(el('span', { class: 'help', style: 'font-weight:400' }, ' (conditional)'));
+      }
+      if (idx !== 0) {
+        th.append(el('span', { class: 'apply', onclick: () => {
+          const firstVal = item.variants[0]?.[f.key] ?? '';
+          applyToAllVariants(i, f.key, firstVal);
+        }}, '↓ copy from row 1'));
+      }
+      vthr.append(th);
+    });
+    vthr.append(el('th', {}, ''));
+    vthead.append(vthr); vTable.append(vthead);
+    const vtb = el('tbody');
+    item.variants.forEach((v, vi) => {
+      const tr = el('tr');
+      cat.variant.forEach(f => {
+        const td = el('td');
+        td.append(makeInput(f, v[f.key], val => { v[f.key] = val; }));
+        tr.append(td);
+      });
+      const tdAct = el('td', { class: 'actions' });
+      if (item.variants.length > 1) {
+        tdAct.append(el('button', { class: 'danger', onclick: () => { item.variants.splice(vi, 1); renderItems(); } }, '×'));
+      }
+      tr.append(tdAct);
+      vtb.append(tr);
+    });
+    vTable.append(vtb);
+    const vWrap = el('div', { class: 'scroll-wrap' }); vWrap.append(vTable);
+    block.append(vWrap);
+
+    // --- Add variant (capped) ---
+    if (item.variants.length < MAX_VARIANTS) {
+      block.append(el('button', { class: 'ghost add-row', onclick: () => { item.variants.push({}); renderItems(); } }, '+ Add variant'));
+    } else {
+      block.append(el('div', { class: 'help', style: 'margin-top:8px' }, `Reached max of ${MAX_VARIANTS} variants for this item.`));
+    }
+
+    root.append(block);
+  });
+}
+
+// =============================================================
+// EVENTS
+// =============================================================
+$('#category').addEventListener('change', e => {
+  state.category = e.target.value || null;
+  if (state.category) {
+    state.items = [{ main: {}, variants: [{}] }];
+    $('#items-card').style.display = '';
+    $('#submit-bar').style.display = '';
+    renderItems();
+  } else {
+    $('#items-card').style.display = 'none';
+    $('#submit-bar').style.display = 'none';
+  }
+});
+
+$('#add-item').addEventListener('click', () => {
+  state.items.push({ main: {}, variants: [{}] });
+  renderItems();
+});
+
+$('#submit').addEventListener('click', async () => {
+  const status = $('#status');
+  status.className = ''; status.textContent = '';
+  const cat = CATEGORIES[state.category];
+
+  const requester = $('#requester').value.trim();
+  const deadline = $('#deadline').value;
+  if (!requester || !deadline) { status.className = 'status err'; status.textContent = 'Requester and deadline required.'; return; }
+  if (!state.items.length) { status.className = 'status err'; status.textContent = 'Add at least one item.'; return; }
+
+  // Build flat list: one row per variant, with main fields copied in
+  const rows = [];
+  for (let i = 0; i < state.items.length; i++) {
+    const item = state.items[i];
+    // Validate main (respecting conditional rules)
+    for (const f of cat.main) {
+      const isReq = f.requiredIf ? f.requiredIf(item.main, item.variants) : f.required;
+      if (isReq && !item.main[f.key]) {
+        status.className = 'status err';
+        status.textContent = `Item ${i+1}: missing main "${f.label}".`;
+        return;
+      }
+    }
+    if (!item.variants.length) { status.className = 'status err'; status.textContent = `Item ${i+1}: at least one variant required.`; return; }
+    for (let vi = 0; vi < item.variants.length; vi++) {
+      const v = item.variants[vi];
+      const row = { _itemIndex: i + 1, _variantIndex: vi + 1 };
+      for (const f of cat.main) row[f.key] = item.main[f.key] ?? '';
+      for (const f of cat.variant) {
+        const val = v[f.key];
+        const isReq = f.requiredIf ? f.requiredIf(v, item.variants) : f.required;
+        if (isReq && (val == null || val === '')) {
+          status.className = 'status err';
+          status.textContent = `Item ${i+1}, variant ${vi+1}: missing "${f.label}".`;
+          return;
+        }
+        row[f.key] = val ?? '';
+      }
+      rows.push(row);
+    }
+  }
+
+  const payload = {
+    category: state.category,
+    requester, deadline,
+    rows,
+    submittedAt: new Date().toISOString(),
+  };
+
+  $('#submit').disabled = true;
+  status.className = ''; status.textContent = 'Submitting…';
+  try {
+    const res = await fetch(N8N_WEBHOOK, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    const text = await res.text();
+    if (!res.ok) throw new Error(`HTTP ${res.status}: ${text}`);
+    status.className = 'status ok';
+    status.textContent = `✓ Submitted ${rows.length} variant row(s) across ${state.items.length} item(s). ${text}`;
+    state.items = [{ main: {}, variants: [{}] }];
+    renderItems();
+  } catch (e) {
+    status.className = 'status err';
+    status.textContent = '✗ Submission failed: ' + e.message;
+  } finally {
+    $('#submit').disabled = false;
+  }
+});
+</script>
+</body>
+</html>

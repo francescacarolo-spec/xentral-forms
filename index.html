@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Xentral: New Item Request</title>
+<script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
 <style>
   :root { --bg:#fafafa; --card:#fff; --border:#e3e3e3; --muted:#777; --accent:#2563eb; --danger:#dc2626; --ok:#16a34a; }
   * { box-sizing: border-box; }
@@ -77,11 +78,11 @@
   <div id="csv-card" class="card" style="display:none">
     <h2>CSV import / export <small style="color:var(--muted);font-weight:400">(optional — you can also fill the form manually below)</small></h2>
     <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
-      <button id="csv-download" class="ghost">Download CSV template</button>
+      <button id="csv-download" class="ghost">Download Excel template</button>
       <span style="color:var(--muted);font-size:13px">or</span>
       <label style="margin:0;cursor:pointer">
-        <span class="ghost" style="display:inline-block;padding:8px 14px;border:1px dashed var(--border);border-radius:6px;font-size:14px;color:var(--muted)">Upload filled CSV</span>
-        <input id="csv-upload" type="file" accept=".csv" style="display:none">
+        <span class="ghost" style="display:inline-block;padding:8px 14px;border:1px dashed var(--border);border-radius:6px;font-size:14px;color:var(--muted)">Upload filled file (.xlsx or .csv)</span>
+        <input id="csv-upload" type="file" accept=".csv,.xlsx" style="display:none">
       </label>
     </div>
     <div id="csv-status" style="margin-top:8px"></div>
@@ -395,135 +396,174 @@ $('#category').addEventListener('change', e => {
 });
 
 // =============================================================
-// CSV EXPORT (download template)
+// EXCEL EXPORT (download template with dropdown validation)
 // =============================================================
-$('#csv-download').addEventListener('click', () => {
+$('#csv-download').addEventListener('click', async () => {
   const cat = CATEGORIES[state.category];
   const allFields = [...cat.main, ...cat.variant];
-  const headers = allFields.map(f => f.label);
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet('Items');
 
-  // Second row: allowed values hint for dropdowns, type hint for others
-  const hints = allFields.map(f => {
-    if (f.type === 'dropdown') return f.options.join(' | ');
-    if (f.type === 'checkbox') return 'TRUE / FALSE';
-    if (f.type === 'number') return '(number)';
-    return '(text)';
+  // Header row
+  const headerRow = ws.addRow(allFields.map(f => f.label));
+  headerRow.eachCell(cell => {
+    cell.font = { bold: true, size: 11 };
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF0F0F0' } };
+    cell.border = { bottom: { style: 'thin' } };
   });
 
-  const escCSV = v => {
-    const s = String(v ?? '');
-    return s.includes(',') || s.includes('"') || s.includes('\n') ? '"' + s.replace(/"/g, '""') + '"' : s;
-  };
+  // Set column widths + data validation for dropdowns
+  allFields.forEach((f, i) => {
+    const col = ws.getColumn(i + 1);
+    col.width = Math.max(f.label.length + 4, 16);
+    if (f.type === 'dropdown') {
+      // Apply validation to rows 2–101 (up to 100 data rows)
+      for (let r = 2; r <= 101; r++) {
+        ws.getCell(r, i + 1).dataValidation = {
+          type: 'list',
+          allowBlank: !f.required,
+          formulae: ['"' + f.options.join(',') + '"'],
+          showDropDown: true,
+        };
+      }
+    } else if (f.type === 'checkbox') {
+      for (let r = 2; r <= 101; r++) {
+        ws.getCell(r, i + 1).dataValidation = {
+          type: 'list',
+          allowBlank: true,
+          formulae: ['"TRUE,FALSE"'],
+          showDropDown: true,
+        };
+      }
+    }
+  });
 
-  const rows = [headers.map(escCSV).join(','), hints.map(escCSV).join(',')];
-  const blob = new Blob(['\uFEFF' + rows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+  // Add one empty data row so the file isn't confusing
+  ws.addRow(allFields.map(() => ''));
+
+  // Freeze header row
+  ws.views = [{ state: 'frozen', ySplit: 1 }];
+
+  const buf = await wb.xlsx.writeBuffer();
+  const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = `xentral_template_${state.category.toLowerCase()}.csv`;
+  a.download = `xentral_template_${state.category.toLowerCase()}.xlsx`;
   a.click();
   URL.revokeObjectURL(a.href);
 });
 
 // =============================================================
-// CSV IMPORT (upload → populate form)
+// FILE IMPORT (upload .xlsx or .csv → populate form)
 // =============================================================
-$('#csv-upload').addEventListener('change', e => {
+
+// Shared: take array-of-arrays (header row + data rows) → populate state
+function importRows(rows, cat) {
+  const allFields = [...cat.main, ...cat.variant];
+  const csvHeaders = rows[0].map(h => String(h ?? '').trim());
+  const fieldMap = [];
+  for (let ci = 0; ci < csvHeaders.length; ci++) {
+    const match = allFields.find(f => f.label.toLowerCase() === csvHeaders[ci].toLowerCase());
+    fieldMap.push(match || null);
+  }
+
+  const records = [];
+  for (let ri = 1; ri < rows.length; ri++) {
+    const r = rows[ri];
+    const rec = {};
+    for (let ci = 0; ci < fieldMap.length; ci++) {
+      const f = fieldMap[ci];
+      if (!f) continue;
+      let val = r[ci] ?? '';
+      if (typeof val === 'number') val = String(val);
+      if (typeof val === 'boolean') { rec[f.key] = val; continue; }
+      val = String(val).trim();
+      if (f.type === 'checkbox') val = (val.toLowerCase() === 'true' || val === '1');
+      rec[f.key] = val;
+    }
+    if (Object.values(rec).some(v => v !== '' && v !== false)) records.push(rec);
+  }
+
+  if (!records.length) throw new Error('No data rows found after header.');
+
+  const mainKeys = cat.main.map(f => f.key);
+  const variantKeys = cat.variant.map(f => f.key);
+  const nameKey = cat.main[0].key;
+
+  const groups = new Map();
+  for (const rec of records) {
+    const groupKey = rec[nameKey] || `unnamed_${groups.size}`;
+    if (!groups.has(groupKey)) {
+      const main = {};
+      for (const k of mainKeys) main[k] = rec[k] ?? '';
+      groups.set(groupKey, { main, variants: [] });
+    }
+    const variant = {};
+    for (const k of variantKeys) variant[k] = rec[k] ?? '';
+    groups.get(groupKey).variants.push(variant);
+  }
+
+  return { items: Array.from(groups.values()), recordCount: records.length };
+}
+
+// CSV parser
+function parseCSV(text) {
+  const rows = []; let row = [], cell = '', inQ = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inQ) {
+      if (c === '"' && text[i+1] === '"') { cell += '"'; i++; }
+      else if (c === '"') inQ = false;
+      else cell += c;
+    } else {
+      if (c === '"') inQ = true;
+      else if (c === ',') { row.push(cell.trim()); cell = ''; }
+      else if (c === '\n') { row.push(cell.trim()); rows.push(row); row = []; cell = ''; }
+      else if (c === '\r') {}
+      else cell += c;
+    }
+  }
+  if (cell || row.length) { row.push(cell.trim()); rows.push(row); }
+  return rows;
+}
+
+$('#csv-upload').addEventListener('change', async e => {
   const file = e.target.files[0];
   if (!file) return;
   const csvStatus = $('#csv-status');
-  const reader = new FileReader();
-  reader.onload = evt => {
-    try {
-      const raw = evt.target.result.replace(/^\uFEFF/, '').trim();
-      const cat = CATEGORIES[state.category];
-      const allFields = [...cat.main, ...cat.variant];
+  const cat = CATEGORIES[state.category];
 
+  try {
+    let rows;
+    if (file.name.endsWith('.xlsx')) {
+      // Parse Excel with ExcelJS
+      const buf = await file.arrayBuffer();
+      const wb = new ExcelJS.Workbook();
+      await wb.xlsx.load(buf);
+      const ws = wb.worksheets[0];
+      rows = [];
+      ws.eachRow(row => {
+        rows.push(row.values.slice(1)); // row.values is 1-indexed, slice(1) → 0-indexed
+      });
+    } else {
       // Parse CSV
-      function parseCSV(text) {
-        const rows = []; let row = [], cell = '', inQ = false;
-        for (let i = 0; i < text.length; i++) {
-          const c = text[i];
-          if (inQ) {
-            if (c === '"' && text[i+1] === '"') { cell += '"'; i++; }
-            else if (c === '"') inQ = false;
-            else cell += c;
-          } else {
-            if (c === '"') inQ = true;
-            else if (c === ',') { row.push(cell.trim()); cell = ''; }
-            else if (c === '\n') { row.push(cell.trim()); rows.push(row); row = []; cell = ''; }
-            else if (c === '\r') {}
-            else cell += c;
-          }
-        }
-        if (cell || row.length) { row.push(cell.trim()); rows.push(row); }
-        return rows;
-      }
-
-      const rows = parseCSV(raw).filter(r => r.some(v => v));
-      if (rows.length < 2) throw new Error('CSV needs a header row and at least one data row.');
-
-      // Match headers to field keys
-      const csvHeaders = rows[0].map(h => h.trim());
-      const fieldMap = []; // index in CSV → field object (or null)
-      for (let ci = 0; ci < csvHeaders.length; ci++) {
-        const match = allFields.find(f => f.label.toLowerCase() === csvHeaders[ci].toLowerCase());
-        fieldMap.push(match || null);
-      }
-
-      // Skip row 1 if it looks like the hints row (starts with allowed values or "(text)")
-      let startRow = 1;
-      if (rows.length > 2) {
-        const firstDataCell = (rows[1][0] || '').toLowerCase();
-        if (firstDataCell.startsWith('(') || firstDataCell.includes(' | ')) startRow = 2;
-      }
-
-      // Parse data rows into flat records
-      const records = [];
-      for (let ri = startRow; ri < rows.length; ri++) {
-        const r = rows[ri];
-        const rec = {};
-        for (let ci = 0; ci < fieldMap.length; ci++) {
-          const f = fieldMap[ci];
-          if (!f) continue;
-          let val = r[ci] ?? '';
-          if (f.type === 'checkbox') val = (val.toLowerCase() === 'true' || val === '1');
-          rec[f.key] = val;
-        }
-        if (Object.values(rec).some(v => v !== '' && v !== false)) records.push(rec);
-      }
-
-      if (!records.length) throw new Error('No data rows found after header.');
-
-      // Group by matrix fields (by "Name" field) to reconstruct items
-      const mainKeys = cat.main.map(f => f.key);
-      const variantKeys = cat.variant.map(f => f.key);
-      const nameKey = cat.main[0].key; // first main field is always Name
-
-      const groups = new Map();
-      for (const rec of records) {
-        const groupKey = rec[nameKey] || `unnamed_${groups.size}`;
-        if (!groups.has(groupKey)) {
-          const main = {};
-          for (const k of mainKeys) main[k] = rec[k] ?? '';
-          groups.set(groupKey, { main, variants: [] });
-        }
-        const variant = {};
-        for (const k of variantKeys) variant[k] = rec[k] ?? '';
-        groups.get(groupKey).variants.push(variant);
-      }
-
-      state.items = Array.from(groups.values());
-      renderItems();
-
-      csvStatus.className = 'status ok';
-      csvStatus.textContent = `Imported ${records.length} row(s) across ${state.items.length} item(s). Review below and submit.`;
-    } catch (err) {
-      csvStatus.className = 'status err';
-      csvStatus.textContent = 'CSV import error: ' + err.message;
+      const text = await file.text();
+      rows = parseCSV(text.replace(/^\uFEFF/, '').trim()).filter(r => r.some(v => v));
     }
-  };
-  reader.readAsText(file);
-  e.target.value = ''; // reset so re-uploading same file triggers change
+
+    if (rows.length < 2) throw new Error('File needs a header row and at least one data row.');
+
+    const result = importRows(rows, cat);
+    state.items = result.items;
+    renderItems();
+
+    csvStatus.className = 'status ok';
+    csvStatus.textContent = `Imported ${result.recordCount} row(s) across ${state.items.length} item(s). Review below and submit.`;
+  } catch (err) {
+    csvStatus.className = 'status err';
+    csvStatus.textContent = 'Import error: ' + err.message;
+  }
+  e.target.value = '';
 });
 
 $('#add-item').addEventListener('click', () => {

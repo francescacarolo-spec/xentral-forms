@@ -27,9 +27,6 @@
   button.danger { background: white; color: var(--danger); border-color: var(--danger); }
   button.ghost { background: transparent; border: 1px dashed var(--border); color: var(--muted); }
   .item-block { border: 1px solid var(--border); border-radius: 8px; padding: 14px; margin-bottom: 14px; background: #fcfcfc; }
-  .item-header { display: flex; gap: 10px; align-items: end; margin-bottom: 10px; }
-  .item-header > div { flex: 1; }
-  .item-header > button { flex: 0; }
   .scroll-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 6px; background: #fff; }
   table.variants { border-collapse: separate; border-spacing: 0; font-size: 13px; min-width: 100%; }
   table.variants th { text-align: left; padding: 6px 8px; background: #f6f6f6; border-bottom: 1px solid var(--border); font-weight: 600; font-size: 12px; color: #555; white-space: nowrap; }
@@ -38,9 +35,7 @@
   table.variants td { padding: 4px; border-bottom: 1px solid #f0f0f0; vertical-align: top; }
   table.variants td input, table.variants td select { padding: 6px 8px; font-size: 13px; min-width: 110px; }
   table.variants td.actions { width: 1%; }
-  /* Sticky first column (variant name) */
-  table.variants thead th:first-child,
-  table.variants tbody td:first-child { position: sticky; left: 0; background: #fff; z-index: 2; box-shadow: 2px 0 0 -1px var(--border); }
+  table.variants thead th:first-child, table.variants tbody td:first-child { position: sticky; left: 0; background: #fff; z-index: 2; box-shadow: 2px 0 0 -1px var(--border); }
   table.variants thead th:first-child { background: #f6f6f6; }
   .add-row { margin-top: 8px; }
   .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
@@ -49,7 +44,13 @@
   .status.ok { background: #ecfdf5; color: var(--ok); border: 1px solid #a7f3d0; }
   .status.err { background: #fef2f2; color: var(--danger); border: 1px solid #fecaca; white-space: pre-wrap; }
   .help { font-size: 11px; color: var(--muted); margin-top: 2px; }
-  .name-preview { font-size: 11px; color: var(--accent); padding: 4px 8px; }
+  .contents-wrap { background: #f9f9f9; border: 1px dashed var(--border); border-radius: 6px; padding: 8px 10px; margin: 4px 0 8px 24px; }
+  .contents-wrap table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .contents-wrap th { text-align: left; padding: 4px 6px; font-weight: 600; color: #555; font-size: 11px; }
+  .contents-wrap td { padding: 3px 4px; }
+  .contents-wrap td input { padding: 5px 7px; font-size: 12px; min-width: 80px; }
+  .row-num { display: inline-block; background: #e5e7eb; color: #333; font-size: 11px; font-weight: 700; padding: 2px 6px; border-radius: 4px; min-width: 24px; text-align: center; }
+  .legend { font-size: 13px; color: var(--muted); line-height: 1.7; }
 </style>
 </head>
 <body>
@@ -100,18 +101,21 @@
     <button id="submit" class="primary" style="padding:12px 24px;font-size:15px">Submit request</button>
     <div id="status"></div>
   </div>
+
+  <div id="legend" class="card legend" style="display:none">
+    <strong>*</strong> = mandatory field<br>
+    <strong>**</strong> = conditionally mandatory — required only in certain cases (hover the column header for details)
+  </div>
 </main>
 
 <script>
 // =============================================================
-// CONFIG: webhook + field sets per category
+// CONFIG
 // =============================================================
 const N8N_WEBHOOK = 'https://petsdelicompany.app.n8n.cloud/webhook/xentral-new-item-json';
-
-// Category configs generated from Inputs fields.xlsx (all fields required)
 const MAX_VARIANTS = 10;
+const MAX_CONTENTS = 12;
 
-// Shared dropdown option sets
 const PET_TYPES         = ['Dog', 'Cat', 'Dog and Cat'];
 const TK_OPTIONS        = ['Non-TK', 'TK'];
 const VAT_OPTIONS       = ['normal', 'reduced'];
@@ -119,16 +123,11 @@ const STATUS_OPTIONS_DE = ['Aktiv', 'Upcoming'];
 const STATUS_OPTIONS_CH = ['Aktiv', 'Upcoming', 'Inaktiv'];
 const PROD_TYPE_OPTS    = ['Einzelprodukt', 'Mehrprodukt', 'Rohstoff'];
 
-// Conditional-required rules (evaluated at submit time)
-//   variantRule(variantRow, allVariants) => bool — if returns true, field is required
-//   mainRule(mainRow, allVariants)       => bool
+// Conditional rules
 const RULES = {
-  // Variant: Selling Price CHF required unless THIS variant's Status (CH) is Inaktiv
-  chPriceRequired: (variantRow) =>
-    variantRow['status_ch'] !== 'Inaktiv' && variantRow['status_pos_ch'] !== 'Inaktiv',
-  // Main: VAT rate CH required unless ALL variants have Status (CH) = Inaktiv
-  chVatRequired: (_main, variants) =>
-    variants.some(v => v['status_ch'] !== 'Inaktiv' && v['status_pos_ch'] !== 'Inaktiv'),
+  chPriceRequired: (v) => v['status_ch'] !== 'Inaktiv' && v['status_pos_ch'] !== 'Inaktiv',
+  chVatRequired: (_m, variants) => variants.some(v => v['status_ch'] !== 'Inaktiv' && v['status_pos_ch'] !== 'Inaktiv'),
+  supplierLinkRequired: (main) => main['supplier'] === 'NEW',
 };
 
 const CATEGORIES = {
@@ -136,7 +135,8 @@ const CATEGORIES = {
     label: '1 — Point of Sales',
     main: [
       { label: 'Name',                           type: 'text' },
-      { label: 'Supplier',                       type: 'dropdown', options: ['Greencat', 'Hoopo'] },
+      { label: 'Supplier',                       type: 'dropdown', options: ['Greencat', 'Hoopo', 'NEW'] },
+      { label: 'Supplier Link',                  type: 'text', requiredIf: RULES.supplierLinkRequired, help: 'Paste supplier webpage/URL (required if Supplier = NEW)' },
       { label: 'Pet Type',                       type: 'dropdown', options: PET_TYPES },
       { label: 'Product Category',               type: 'dropdown', options: ['Others', 'Snacks'] },
       { label: 'TK/Non TK',                      type: 'dropdown', options: TK_OPTIONS },
@@ -150,18 +150,20 @@ const CATEGORIES = {
       { label: 'Product Type',              type: 'dropdown', options: PROD_TYPE_OPTS },
       { label: 'Status POS DE',             type: 'dropdown', options: STATUS_OPTIONS_DE },
       { label: 'Status POS CH',             type: 'dropdown', options: STATUS_OPTIONS_CH },
-      { label: 'EAN',                       type: 'number' },
+      { label: 'EAN',                       type: 'number', required: false },
       { label: 'MOQ',                       type: 'number' },
       { label: 'Selling Price EUR (net)',   type: 'number' },
       { label: 'Selling Price CHF (net)',   type: 'number', requiredIf: RULES.chPriceRequired },
       { label: 'BASE per PU (pcs)',         type: 'number' },
     ],
+    hasContentsWhen: 'Mehrprodukt',
   },
   BASE: {
     label: '2 — Single & Trays (food)',
     main: [
       { label: 'Name',                           type: 'text' },
-      { label: 'Supplier',                       type: 'dropdown', options: ['Landguth', 'Asian Group'] },
+      { label: 'Supplier',                       type: 'dropdown', options: ['Landguth', 'Asian Group', 'NEW'] },
+      { label: 'Supplier Link',                  type: 'text', requiredIf: RULES.supplierLinkRequired, help: 'Paste supplier webpage/URL (required if Supplier = NEW)' },
       { label: 'Pet Type',                       type: 'dropdown', options: PET_TYPES },
       { label: 'Product Category',               type: 'dropdown', options: ['Nassfutter', 'Snack', 'Trockenfutter'] },
       { label: 'TK/Non TK',                      type: 'dropdown', options: TK_OPTIONS },
@@ -177,18 +179,15 @@ const CATEGORIES = {
       { label: 'Status CH',     type: 'dropdown', options: STATUS_OPTIONS_CH },
       { label: 'EAN',           type: 'checkbox', required: false },
     ],
+    hasContentsWhen: 'Mehrprodukt',
   },
   BUNDLES: {
     label: '3 — Bundles',
     main: [
-      { label: 'Name',                           type: 'text' },
-      { label: 'Pet Type',                       type: 'dropdown', options: PET_TYPES },
-      { label: 'Product Category',               type: 'dropdown', options: ['Nassfutter', 'Snack', 'Trockenfutter'] },
-      { label: 'TK/Non TK',                      type: 'dropdown', options: TK_OPTIONS },
-      { label: 'VAT rate DE',                    type: 'dropdown', options: VAT_OPTIONS },
-      { label: 'VAT rate AT',                    type: 'dropdown', options: VAT_OPTIONS },
-      { label: 'VAT rate CH',                    type: 'dropdown', options: VAT_OPTIONS, requiredIf: RULES.chVatRequired },
-      { label: 'Standard delivery time (weeks)', type: 'number' },
+      { label: 'Name',             type: 'text' },
+      { label: 'Pet Type',         type: 'dropdown', options: PET_TYPES },
+      { label: 'Product Category', type: 'dropdown', options: ['Nassfutter', 'Snack', 'Trockenfutter'] },
+      { label: 'TK/Non TK',       type: 'dropdown', options: TK_OPTIONS },
     ],
     variant: [
       { label: 'Variant',                 type: 'text' },
@@ -197,12 +196,14 @@ const CATEGORIES = {
       { label: 'Selling Price EUR (net)', type: 'number' },
       { label: 'Selling Price CHF (net)', type: 'number', requiredIf: RULES.chPriceRequired },
     ],
+    hasContentsWhen: 'always',
   },
   NONFOOD: {
     label: '4 — Non Food',
     main: [
       { label: 'Name',                           type: 'text' },
-      { label: 'Supplier',                       type: 'dropdown', options: ['Greencat', 'Hoopo'] },
+      { label: 'Supplier',                       type: 'dropdown', options: ['Greencat', 'Hoopo', 'NEW'] },
+      { label: 'Supplier Link',                  type: 'text', requiredIf: RULES.supplierLinkRequired, help: 'Paste supplier webpage/URL (required if Supplier = NEW)' },
       { label: 'Pet Type',                       type: 'dropdown', options: PET_TYPES },
       { label: 'Product Category',               type: 'dropdown', options: ['Others', 'Snacks'] },
       { label: 'TK/Non TK',                      type: 'dropdown', options: TK_OPTIONS },
@@ -216,7 +217,7 @@ const CATEGORIES = {
       { label: 'Product Type',            type: 'dropdown', options: PROD_TYPE_OPTS },
       { label: 'Status DE',               type: 'dropdown', options: STATUS_OPTIONS_DE },
       { label: 'Status CH',               type: 'dropdown', options: STATUS_OPTIONS_CH },
-      { label: 'EAN',                     type: 'number' },
+      { label: 'EAN',                     type: 'number', required: false },
       { label: 'MOQ',                     type: 'number' },
       { label: 'Gross Weight (kg)',       type: 'number' },
       { label: 'Net Weight (kg)',         type: 'number' },
@@ -227,25 +228,23 @@ const CATEGORIES = {
       { label: 'Selling Price CHF (net)', type: 'number', requiredIf: RULES.chPriceRequired },
       { label: 'BASE per PU (pcs)',       type: 'number' },
     ],
+    hasContentsWhen: 'Mehrprodukt',
   },
 };
 
-// Helper: slugify label → stable key for state / payload
+// Init: slugify keys + set defaults
 const slug = s => s.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
 for (const cat of Object.values(CATEGORIES)) {
   for (const f of [...cat.main, ...cat.variant]) {
     f.key = slug(f.label);
-    // "required" is the effective requirement; `requiredIf` (if present) overrides at submit time.
-    f.required = true;
+    if (f.required === undefined) f.required = true; // respect explicit required:false
   }
 }
 
 // =============================================================
-// STATE + RENDER
+// STATE + HELPERS
 // =============================================================
-// items: [{ main: {field_key: value}, variants: [{field_key: value}, ...] }]
 const state = { category: null, items: [] };
-
 const $ = s => document.querySelector(s);
 const el = (tag, attrs = {}, ...kids) => {
   const e = document.createElement(tag);
@@ -257,6 +256,13 @@ const el = (tag, attrs = {}, ...kids) => {
   for (const c of kids) e.append(c instanceof Node ? c : document.createTextNode(c ?? ''));
   return e;
 };
+
+// Field label marker: * = required, ** = conditional, (none) = optional
+function fieldMarker(f) {
+  if (f.requiredIf) return ' **';
+  if (f.required) return ' *';
+  return '';
+}
 
 function makeInput(f, currentValue, onChange) {
   let inp;
@@ -271,8 +277,7 @@ function makeInput(f, currentValue, onChange) {
     inp.addEventListener('change', e => onChange(e.target.value));
   } else if (f.type === 'checkbox') {
     inp = el('input', { type: 'checkbox' });
-    inp.style.minWidth = 'auto';
-    inp.style.width = 'auto';
+    inp.style.minWidth = 'auto'; inp.style.width = 'auto';
     if (currentValue === true || currentValue === 'true') inp.checked = true;
     inp.addEventListener('change', e => onChange(e.target.checked));
   } else {
@@ -289,6 +294,27 @@ function applyToAllVariants(itemIdx, colKey, value) {
   renderItems();
 }
 
+// Does this variant need a Contents sub-table?
+function variantNeedsContents(cat, v) {
+  if (cat.hasContentsWhen === 'always') return true;
+  if (cat.hasContentsWhen && v['product_type'] === cat.hasContentsWhen) return true;
+  return false;
+}
+
+// Build dropdown options for content references (sibling variants in same item)
+function contentRefOptions(item, currentVariantIdx) {
+  const opts = [];
+  item.variants.forEach((v, vi) => {
+    if (vi === currentVariantIdx) return; // can't reference yourself
+    const label = v['variant'] || `(variant ${vi + 1})`;
+    opts.push({ value: `#${vi + 1}`, label: `#${vi + 1} — ${label}` });
+  });
+  return opts;
+}
+
+// =============================================================
+// RENDER
+// =============================================================
 function renderItems() {
   const cat = CATEGORIES[state.category];
   const root = $('#items');
@@ -297,7 +323,7 @@ function renderItems() {
   state.items.forEach((item, i) => {
     const block = el('div', { class: 'item-block' });
 
-    // --- Block header ---
+    // Block header
     block.append(el('div', { class: 'toolbar' },
       el('strong', {}, `Item ${i + 1}`),
       state.items.length > 1
@@ -310,9 +336,8 @@ function renderItems() {
     const mainTable = el('table', { class: 'variants' });
     const mthead = el('thead'); const mtr = el('tr');
     cat.main.forEach(f => {
-      const th = el('th', {}, f.label + (f.required ? ' *' : ''));
-      if (f.requiredIf) th.setAttribute('title', 'Required unless all variants have Status (CH) = Inaktiv');
-      if (f.requiredIf) th.append(el('span', { class: 'help', style: 'font-weight:400' }, ' (conditional)'));
+      const th = el('th', {}, f.label + fieldMarker(f));
+      if (f.requiredIf) th.setAttribute('title', f.help || 'Conditionally required — see field description');
       mtr.append(th);
     });
     mthead.append(mtr); mainTable.append(mthead);
@@ -331,17 +356,16 @@ function renderItems() {
       `Variants (at least 1, max ${MAX_VARIANTS})`));
     const vTable = el('table', { class: 'variants' });
     const vthead = el('thead'); const vthr = el('tr');
+    // # column (row number)
+    vthr.append(el('th', {}, '#'));
     cat.variant.forEach((f, idx) => {
-      const th = el('th', {}, f.label + (f.required ? ' *' : ''));
-      if (f.requiredIf) {
-        th.setAttribute('title', 'Required unless this variant Status (CH) = Inaktiv');
-        th.append(el('span', { class: 'help', style: 'font-weight:400' }, ' (conditional)'));
-      }
+      const th = el('th', {}, f.label + fieldMarker(f));
+      if (f.requiredIf) th.setAttribute('title', f.help || 'Conditionally required');
       if (idx !== 0) {
         th.append(el('span', { class: 'apply', onclick: () => {
           const firstVal = item.variants[0]?.[f.key] ?? '';
           applyToAllVariants(i, f.key, firstVal);
-        }}, '↓ copy from row 1'));
+        }}, '\u2193 copy from row 1'));
       }
       vthr.append(th);
     });
@@ -349,28 +373,87 @@ function renderItems() {
     vthead.append(vthr); vTable.append(vthead);
     const vtb = el('tbody');
     item.variants.forEach((v, vi) => {
+      // Ensure contents array exists
+      if (!v.contents) v.contents = [];
       const tr = el('tr');
+      // # column
+      const tdNum = el('td'); tdNum.append(el('span', { class: 'row-num' }, `#${vi + 1}`));
+      tr.append(tdNum);
+      // Field columns
       cat.variant.forEach(f => {
         const td = el('td');
-        td.append(makeInput(f, v[f.key], val => { v[f.key] = val; }));
+        td.append(makeInput(f, v[f.key], val => { v[f.key] = val; renderItems(); }));
         tr.append(td);
       });
+      // Remove button
       const tdAct = el('td', { class: 'actions' });
       if (item.variants.length > 1) {
-        tdAct.append(el('button', { class: 'danger', onclick: () => { item.variants.splice(vi, 1); renderItems(); } }, '×'));
+        tdAct.append(el('button', { class: 'danger', onclick: () => { item.variants.splice(vi, 1); renderItems(); } }, '\u00d7'));
       }
       tr.append(tdAct);
       vtb.append(tr);
+
+      // --- Contents sub-table (if Mehrprodukt or Bundle) ---
+      if (variantNeedsContents(cat, v)) {
+        const ctr = el('tr');
+        const ctd = el('td', { colspan: String(cat.variant.length + 2) });
+        const cWrap = el('div', { class: 'contents-wrap' });
+        cWrap.append(el('div', { style: 'font-weight:600;font-size:12px;margin-bottom:4px;color:#333' },
+          `Contents of #${vi + 1} (${v['variant'] || 'this variant'})`));
+        const cTable = el('table');
+        const cThead = el('thead');
+        const cTr = el('tr');
+        cTr.append(el('th', {}, 'Content item *'));
+        cTr.append(el('th', {}, 'Qty *'));
+        cTr.append(el('th', {}, ''));
+        cThead.append(cTr); cTable.append(cThead);
+        const cTbody = el('tbody');
+        v.contents.forEach((c, ci) => {
+          const row = el('tr');
+          // Content ref: text field (type #N for sibling or existing SKU)
+          const tdRef = el('td');
+          const refInp = el('input', { type: 'text', value: c.ref || '', placeholder: '#1 or existing SKU (e.g. KEN-23089)' });
+          refInp.style.minWidth = '200px';
+          refInp.addEventListener('input', e => { c.ref = e.target.value; });
+          tdRef.append(refInp);
+          row.append(tdRef);
+          // Qty
+          const tdQty = el('td');
+          const qtyInp = el('input', { type: 'number', value: c.qty || '', placeholder: 'Qty' });
+          qtyInp.style.minWidth = '60px';
+          qtyInp.addEventListener('input', e => { c.qty = e.target.value; });
+          tdQty.append(qtyInp);
+          row.append(tdQty);
+          // Remove
+          const tdRm = el('td');
+          tdRm.append(el('button', { class: 'danger', style: 'padding:4px 8px;font-size:12px', onclick: () => { v.contents.splice(ci, 1); renderItems(); } }, '\u00d7'));
+          row.append(tdRm);
+          cTbody.append(row);
+        });
+        cTable.append(cTbody);
+        cWrap.append(cTable);
+        // Sibling reference hint
+        const siblings = contentRefOptions(item, vi);
+        if (siblings.length > 0) {
+          cWrap.append(el('div', { class: 'help' }, 'Tip: Use ' + siblings.map(s => s.value + ' = ' + s.label.split(' \u2014 ')[1]).join(', ') + ' to reference other variants in this item, or type an existing Xentral SKU.'));
+        }
+        if (v.contents.length < MAX_CONTENTS) {
+          cWrap.append(el('button', { class: 'ghost', style: 'margin-top:6px;padding:4px 10px;font-size:12px', onclick: () => { v.contents.push({ ref: '', qty: '' }); renderItems(); } }, '+ Add content'));
+        }
+        if (v.contents.length === 0) {
+          cWrap.append(el('button', { class: 'ghost', style: 'margin-top:4px;padding:4px 10px;font-size:12px', onclick: () => { v.contents.push({ ref: '', qty: '' }); renderItems(); } }, '+ Add content'));
+        }
+        ctd.append(cWrap);
+        ctr.append(ctd);
+        vtb.append(ctr);
+      }
     });
     vTable.append(vtb);
     const vWrap = el('div', { class: 'scroll-wrap' }); vWrap.append(vTable);
     block.append(vWrap);
 
-    // --- Add variant (capped) ---
     if (item.variants.length < MAX_VARIANTS) {
       block.append(el('button', { class: 'ghost add-row', onclick: () => { item.variants.push({}); renderItems(); } }, '+ Add variant'));
-    } else {
-      block.append(el('div', { class: 'help', style: 'margin-top:8px' }, `Reached max of ${MAX_VARIANTS} variants for this item.`));
     }
 
     root.append(block);
@@ -387,77 +470,55 @@ $('#category').addEventListener('change', e => {
     $('#csv-card').style.display = '';
     $('#items-card').style.display = '';
     $('#submit-bar').style.display = '';
+    $('#legend').style.display = '';
     renderItems();
   } else {
     $('#csv-card').style.display = 'none';
     $('#items-card').style.display = 'none';
     $('#submit-bar').style.display = 'none';
+    $('#legend').style.display = 'none';
   }
 });
 
 // =============================================================
-// EXCEL EXPORT (download template with dropdown validation)
+// EXCEL EXPORT
 // =============================================================
 $('#csv-download').addEventListener('click', async () => {
   const cat = CATEGORIES[state.category];
   const allFields = [...cat.main, ...cat.variant];
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet('Items');
-
-  // Header row
   const headerRow = ws.addRow(allFields.map(f => f.label));
   headerRow.eachCell(cell => {
     cell.font = { bold: true, size: 11 };
     cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF0F0F0' } };
     cell.border = { bottom: { style: 'thin' } };
   });
-
-  // Set column widths + data validation for dropdowns
   allFields.forEach((f, i) => {
     const col = ws.getColumn(i + 1);
     col.width = Math.max(f.label.length + 4, 16);
     if (f.type === 'dropdown') {
-      // Apply validation to rows 2–101 (up to 100 data rows)
       for (let r = 2; r <= 101; r++) {
-        ws.getCell(r, i + 1).dataValidation = {
-          type: 'list',
-          allowBlank: !f.required,
-          formulae: ['"' + f.options.join(',') + '"'],
-          showErrorMessage: true,
-        };
+        ws.getCell(r, i + 1).dataValidation = { type: 'list', allowBlank: !f.required, formulae: ['"' + f.options.join(',') + '"'], showErrorMessage: true };
       }
     } else if (f.type === 'checkbox') {
       for (let r = 2; r <= 101; r++) {
-        ws.getCell(r, i + 1).dataValidation = {
-          type: 'list',
-          allowBlank: true,
-          formulae: ['"TRUE,FALSE"'],
-          showErrorMessage: true,
-        };
+        ws.getCell(r, i + 1).dataValidation = { type: 'list', allowBlank: true, formulae: ['"TRUE,FALSE"'], showErrorMessage: true };
       }
     }
   });
-
-  // Add one empty data row so the file isn't confusing
   ws.addRow(allFields.map(() => ''));
-
-  // Freeze header row
   ws.views = [{ state: 'frozen', ySplit: 1 }];
-
   const buf = await wb.xlsx.writeBuffer();
   const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = `xentral_template_${state.category.toLowerCase()}.xlsx`;
-  a.click();
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = `xentral_template_${state.category.toLowerCase()}.xlsx`; a.click();
   URL.revokeObjectURL(a.href);
 });
 
 // =============================================================
-// FILE IMPORT (upload .xlsx or .csv → populate form)
+// FILE IMPORT
 // =============================================================
-
-// Shared: take array-of-arrays (header row + data rows) → populate state
 function importRows(rows, cat) {
   const allFields = [...cat.main, ...cat.variant];
   const csvHeaders = rows[0].map(h => String(h ?? '').trim());
@@ -466,14 +527,11 @@ function importRows(rows, cat) {
     const match = allFields.find(f => f.label.toLowerCase() === csvHeaders[ci].toLowerCase());
     fieldMap.push(match || null);
   }
-
   const records = [];
   for (let ri = 1; ri < rows.length; ri++) {
-    const r = rows[ri];
-    const rec = {};
+    const r = rows[ri]; const rec = {};
     for (let ci = 0; ci < fieldMap.length; ci++) {
-      const f = fieldMap[ci];
-      if (!f) continue;
+      const f = fieldMap[ci]; if (!f) continue;
       let val = r[ci] ?? '';
       if (typeof val === 'number') val = String(val);
       if (typeof val === 'boolean') { rec[f.key] = val; continue; }
@@ -483,116 +541,67 @@ function importRows(rows, cat) {
     }
     if (Object.values(rec).some(v => v !== '' && v !== false)) records.push(rec);
   }
-
   if (!records.length) throw new Error('No data rows found after header.');
-
   const mainKeys = cat.main.map(f => f.key);
   const variantKeys = cat.variant.map(f => f.key);
   const nameKey = cat.main[0].key;
-
   const groups = new Map();
   for (const rec of records) {
     const groupKey = rec[nameKey] || `unnamed_${groups.size}`;
-    if (!groups.has(groupKey)) {
-      const main = {};
-      for (const k of mainKeys) main[k] = rec[k] ?? '';
-      groups.set(groupKey, { main, variants: [] });
-    }
-    const variant = {};
-    for (const k of variantKeys) variant[k] = rec[k] ?? '';
+    if (!groups.has(groupKey)) { const main = {}; for (const k of mainKeys) main[k] = rec[k] ?? ''; groups.set(groupKey, { main, variants: [] }); }
+    const variant = {}; for (const k of variantKeys) variant[k] = rec[k] ?? '';
+    variant.contents = [];
     groups.get(groupKey).variants.push(variant);
   }
-
   return { items: Array.from(groups.values()), recordCount: records.length };
 }
-
-// CSV parser
 function parseCSV(text) {
   const rows = []; let row = [], cell = '', inQ = false;
   for (let i = 0; i < text.length; i++) {
     const c = text[i];
-    if (inQ) {
-      if (c === '"' && text[i+1] === '"') { cell += '"'; i++; }
-      else if (c === '"') inQ = false;
-      else cell += c;
-    } else {
-      if (c === '"') inQ = true;
-      else if (c === ',') { row.push(cell.trim()); cell = ''; }
-      else if (c === '\n') { row.push(cell.trim()); rows.push(row); row = []; cell = ''; }
-      else if (c === '\r') {}
-      else cell += c;
-    }
+    if (inQ) { if (c === '"' && text[i+1] === '"') { cell += '"'; i++; } else if (c === '"') inQ = false; else cell += c; }
+    else { if (c === '"') inQ = true; else if (c === ',') { row.push(cell.trim()); cell = ''; } else if (c === '\n') { row.push(cell.trim()); rows.push(row); row = []; cell = ''; } else if (c === '\r') {} else cell += c; }
   }
   if (cell || row.length) { row.push(cell.trim()); rows.push(row); }
   return rows;
 }
-
 $('#csv-upload').addEventListener('change', async e => {
-  const file = e.target.files[0];
-  if (!file) return;
-  const csvStatus = $('#csv-status');
-  const cat = CATEGORIES[state.category];
-
+  const file = e.target.files[0]; if (!file) return;
+  const csvStatus = $('#csv-status'); const cat = CATEGORIES[state.category];
   try {
     let rows;
     if (file.name.endsWith('.xlsx')) {
-      // Parse Excel with ExcelJS
-      const buf = await file.arrayBuffer();
-      const wb = new ExcelJS.Workbook();
-      await wb.xlsx.load(buf);
-      const ws = wb.worksheets[0];
-      rows = [];
-      ws.eachRow(row => {
-        rows.push(row.values.slice(1)); // row.values is 1-indexed, slice(1) → 0-indexed
-      });
-    } else {
-      // Parse CSV
-      const text = await file.text();
-      rows = parseCSV(text.replace(/^\uFEFF/, '').trim()).filter(r => r.some(v => v));
-    }
-
+      const buf = await file.arrayBuffer(); const wb = new ExcelJS.Workbook(); await wb.xlsx.load(buf);
+      const ws = wb.worksheets[0]; rows = []; ws.eachRow(row => { rows.push(row.values.slice(1)); });
+    } else { const text = await file.text(); rows = parseCSV(text.replace(/^\uFEFF/, '').trim()).filter(r => r.some(v => v)); }
     if (rows.length < 2) throw new Error('File needs a header row and at least one data row.');
-
-    const result = importRows(rows, cat);
-    state.items = result.items;
-    renderItems();
-
-    csvStatus.className = 'status ok';
-    csvStatus.textContent = `Imported ${result.recordCount} row(s) across ${state.items.length} item(s). Review below and submit.`;
-  } catch (err) {
-    csvStatus.className = 'status err';
-    csvStatus.textContent = 'Import error: ' + err.message;
-  }
+    const result = importRows(rows, cat); state.items = result.items; renderItems();
+    csvStatus.className = 'status ok'; csvStatus.textContent = `Imported ${result.recordCount} row(s) across ${state.items.length} item(s). Review below and submit.`;
+  } catch (err) { csvStatus.className = 'status err'; csvStatus.textContent = 'Import error: ' + err.message; }
   e.target.value = '';
 });
 
-$('#add-item').addEventListener('click', () => {
-  state.items.push({ main: {}, variants: [{}] });
-  renderItems();
-});
+$('#add-item').addEventListener('click', () => { state.items.push({ main: {}, variants: [{}] }); renderItems(); });
 
+// =============================================================
+// SUBMIT
+// =============================================================
 $('#submit').addEventListener('click', async () => {
   const status = $('#status');
   status.className = ''; status.textContent = '';
   const cat = CATEGORIES[state.category];
-
   const requester = $('#requester').value.trim();
   const deadline = $('#deadline').value;
   if (!requester || !deadline) { status.className = 'status err'; status.textContent = 'Requester and deadline required.'; return; }
   if (!state.items.length) { status.className = 'status err'; status.textContent = 'Add at least one item.'; return; }
 
-  // Build flat list: one row per variant, with main fields copied in
   const rows = [];
   for (let i = 0; i < state.items.length; i++) {
     const item = state.items[i];
-    // Validate main (respecting conditional rules)
+    // Validate main
     for (const f of cat.main) {
       const isReq = f.requiredIf ? f.requiredIf(item.main, item.variants) : f.required;
-      if (isReq && !item.main[f.key]) {
-        status.className = 'status err';
-        status.textContent = `Item ${i+1}: missing main "${f.label}".`;
-        return;
-      }
+      if (isReq && !item.main[f.key]) { status.className = 'status err'; status.textContent = `Item ${i+1}: missing main "${f.label}".`; return; }
     }
     if (!item.variants.length) { status.className = 'status err'; status.textContent = `Item ${i+1}: at least one variant required.`; return; }
     for (let vi = 0; vi < item.variants.length; vi++) {
@@ -602,40 +611,35 @@ $('#submit').addEventListener('click', async () => {
       for (const f of cat.variant) {
         const val = v[f.key];
         const isReq = f.requiredIf ? f.requiredIf(v, item.variants) : f.required;
-        if (isReq && (val == null || val === '')) {
-          status.className = 'status err';
-          status.textContent = `Item ${i+1}, variant ${vi+1}: missing "${f.label}".`;
-          return;
-        }
+        if (isReq && (val == null || val === '')) { status.className = 'status err'; status.textContent = `Item ${i+1}, variant ${vi+1}: missing "${f.label}".`; return; }
         row[f.key] = val ?? '';
+      }
+      // Validate + include contents
+      if (variantNeedsContents(cat, v)) {
+        if (!v.contents || v.contents.length === 0) { status.className = 'status err'; status.textContent = `Item ${i+1}, variant #${vi+1}: contents required (at least 1 content item).`; return; }
+        for (let ci = 0; ci < v.contents.length; ci++) {
+          const c = v.contents[ci];
+          if (!c.ref || !c.qty) { status.className = 'status err'; status.textContent = `Item ${i+1}, variant #${vi+1}, content ${ci+1}: both Content item and Qty are required.`; return; }
+        }
+        row._contents = v.contents;
       }
       rows.push(row);
     }
   }
 
-  const payload = {
-    category: state.category,
-    requester, deadline,
-    rows,
-    submittedAt: new Date().toISOString(),
-  };
+  const payload = { category: state.category, requester, deadline, rows, submittedAt: new Date().toISOString() };
 
   $('#submit').disabled = true;
-  status.className = ''; status.textContent = 'Submitting…';
+  status.className = ''; status.textContent = 'Submitting\u2026';
   try {
     const res = await fetch(N8N_WEBHOOK, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
     const text = await res.text();
     if (!res.ok) throw new Error(`HTTP ${res.status}: ${text}`);
     status.className = 'status ok';
-    status.textContent = `✓ Submitted ${rows.length} variant row(s) across ${state.items.length} item(s). ${text}`;
-    state.items = [{ main: {}, variants: [{}] }];
-    renderItems();
-  } catch (e) {
-    status.className = 'status err';
-    status.textContent = '✗ Submission failed: ' + e.message;
-  } finally {
-    $('#submit').disabled = false;
-  }
+    status.textContent = `\u2713 Submitted ${rows.length} variant row(s) across ${state.items.length} item(s). ${text}`;
+    state.items = [{ main: {}, variants: [{}] }]; renderItems();
+  } catch (e) { status.className = 'status err'; status.textContent = '\u2717 Submission failed: ' + e.message; }
+  finally { $('#submit').disabled = false; }
 });
 </script>
 </body>

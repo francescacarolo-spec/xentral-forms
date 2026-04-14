@@ -423,7 +423,7 @@ $('#csv-download').addEventListener('click', async () => {
           type: 'list',
           allowBlank: !f.required,
           formulae: ['"' + f.options.join(',') + '"'],
-          showDropDown: true,
+          showErrorMessage: true,
         };
       }
     } else if (f.type === 'checkbox') {
@@ -432,7 +432,7 @@ $('#csv-download').addEventListener('click', async () => {
           type: 'list',
           allowBlank: true,
           formulae: ['"TRUE,FALSE"'],
-          showDropDown: true,
+          showErrorMessage: true,
         };
       }
     }

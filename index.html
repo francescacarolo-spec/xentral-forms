@@ -65,13 +65,26 @@
       <div><label>Category <span class="req">*</span></label>
         <select id="category" required>
           <option value="">— pick one —</option>
-          <option value="POS">1 — POS New Articles</option>
-          <option value="BASE">2.1 — BASE (stock items) New Articles</option>
-          <option value="BUNDLES">3.1 — BUNDLES (just-in-time) New Articles</option>
-          <option value="NONFOOD">4 — NON-FOOD (stock items) New Articles</option>
+          <option value="POS">1 — Point of Sales</option>
+          <option value="BASE">2 — Single & Trays (food)</option>
+          <option value="BUNDLES">3 — Bundles</option>
+          <option value="NONFOOD">4 — Non Food</option>
         </select>
       </div>
     </div>
+  </div>
+
+  <div id="csv-card" class="card" style="display:none">
+    <h2>CSV import / export <small style="color:var(--muted);font-weight:400">(optional — you can also fill the form manually below)</small></h2>
+    <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+      <button id="csv-download" class="ghost">Download CSV template</button>
+      <span style="color:var(--muted);font-size:13px">or</span>
+      <label style="margin:0;cursor:pointer">
+        <span class="ghost" style="display:inline-block;padding:8px 14px;border:1px dashed var(--border);border-radius:6px;font-size:14px;color:var(--muted)">Upload filled CSV</span>
+        <input id="csv-upload" type="file" accept=".csv" style="display:none">
+      </label>
+    </div>
+    <div id="csv-status" style="margin-top:8px"></div>
   </div>
 
   <div id="items-card" class="card" style="display:none">
@@ -119,7 +132,7 @@ const RULES = {
 
 const CATEGORIES = {
   POS: {
-    label: '1 — POS New Articles',
+    label: '1 — Point of Sales',
     main: [
       { label: 'Name',                           type: 'text' },
       { label: 'Supplier',                       type: 'dropdown', options: ['Greencat', 'Hoopo'] },
@@ -144,7 +157,7 @@ const CATEGORIES = {
     ],
   },
   BASE: {
-    label: '2.1 — BASE (stock items) New Articles',
+    label: '2 — Single & Trays (food)',
     main: [
       { label: 'Name',                           type: 'text' },
       { label: 'Supplier',                       type: 'dropdown', options: ['Landguth', 'Asian Group'] },
@@ -161,10 +174,11 @@ const CATEGORIES = {
       { label: 'Product Type',  type: 'dropdown', options: PROD_TYPE_OPTS },
       { label: 'Status DE',     type: 'dropdown', options: STATUS_OPTIONS_DE },
       { label: 'Status CH',     type: 'dropdown', options: STATUS_OPTIONS_CH },
+      { label: 'EAN',           type: 'checkbox', required: false },
     ],
   },
   BUNDLES: {
-    label: '3.1 — BUNDLES (just-in-time) New Articles',
+    label: '3 — Bundles',
     main: [
       { label: 'Name',                           type: 'text' },
       { label: 'Pet Type',                       type: 'dropdown', options: PET_TYPES },
@@ -184,7 +198,7 @@ const CATEGORIES = {
     ],
   },
   NONFOOD: {
-    label: '4 — NON-FOOD (stock items) New Articles',
+    label: '4 — Non Food',
     main: [
       { label: 'Name',                           type: 'text' },
       { label: 'Supplier',                       type: 'dropdown', options: ['Greencat', 'Hoopo'] },
@@ -253,13 +267,19 @@ function makeInput(f, currentValue, onChange) {
       if (currentValue === v) opt.setAttribute('selected', '');
       inp.append(opt);
     }
+    inp.addEventListener('change', e => onChange(e.target.value));
+  } else if (f.type === 'checkbox') {
+    inp = el('input', { type: 'checkbox' });
+    inp.style.minWidth = 'auto';
+    inp.style.width = 'auto';
+    if (currentValue === true || currentValue === 'true') inp.checked = true;
+    inp.addEventListener('change', e => onChange(e.target.checked));
   } else {
     inp = el('input', { type: f.type });
     if (f.type === 'number') inp.setAttribute('step', 'any');
     if (currentValue != null) inp.value = currentValue;
+    inp.addEventListener('input', e => onChange(e.target.value));
   }
-  inp.addEventListener('input', e => onChange(e.target.value));
-  inp.addEventListener('change', e => onChange(e.target.value));
   return inp;
 }
 
@@ -363,13 +383,147 @@ $('#category').addEventListener('change', e => {
   state.category = e.target.value || null;
   if (state.category) {
     state.items = [{ main: {}, variants: [{}] }];
+    $('#csv-card').style.display = '';
     $('#items-card').style.display = '';
     $('#submit-bar').style.display = '';
     renderItems();
   } else {
+    $('#csv-card').style.display = 'none';
     $('#items-card').style.display = 'none';
     $('#submit-bar').style.display = 'none';
   }
+});
+
+// =============================================================
+// CSV EXPORT (download template)
+// =============================================================
+$('#csv-download').addEventListener('click', () => {
+  const cat = CATEGORIES[state.category];
+  const allFields = [...cat.main, ...cat.variant];
+  const headers = allFields.map(f => f.label);
+
+  // Second row: allowed values hint for dropdowns, type hint for others
+  const hints = allFields.map(f => {
+    if (f.type === 'dropdown') return f.options.join(' | ');
+    if (f.type === 'checkbox') return 'TRUE / FALSE';
+    if (f.type === 'number') return '(number)';
+    return '(text)';
+  });
+
+  const escCSV = v => {
+    const s = String(v ?? '');
+    return s.includes(',') || s.includes('"') || s.includes('\n') ? '"' + s.replace(/"/g, '""') + '"' : s;
+  };
+
+  const rows = [headers.map(escCSV).join(','), hints.map(escCSV).join(',')];
+  const blob = new Blob(['\uFEFF' + rows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `xentral_template_${state.category.toLowerCase()}.csv`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+});
+
+// =============================================================
+// CSV IMPORT (upload → populate form)
+// =============================================================
+$('#csv-upload').addEventListener('change', e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const csvStatus = $('#csv-status');
+  const reader = new FileReader();
+  reader.onload = evt => {
+    try {
+      const raw = evt.target.result.replace(/^\uFEFF/, '').trim();
+      const cat = CATEGORIES[state.category];
+      const allFields = [...cat.main, ...cat.variant];
+
+      // Parse CSV
+      function parseCSV(text) {
+        const rows = []; let row = [], cell = '', inQ = false;
+        for (let i = 0; i < text.length; i++) {
+          const c = text[i];
+          if (inQ) {
+            if (c === '"' && text[i+1] === '"') { cell += '"'; i++; }
+            else if (c === '"') inQ = false;
+            else cell += c;
+          } else {
+            if (c === '"') inQ = true;
+            else if (c === ',') { row.push(cell.trim()); cell = ''; }
+            else if (c === '\n') { row.push(cell.trim()); rows.push(row); row = []; cell = ''; }
+            else if (c === '\r') {}
+            else cell += c;
+          }
+        }
+        if (cell || row.length) { row.push(cell.trim()); rows.push(row); }
+        return rows;
+      }
+
+      const rows = parseCSV(raw).filter(r => r.some(v => v));
+      if (rows.length < 2) throw new Error('CSV needs a header row and at least one data row.');
+
+      // Match headers to field keys
+      const csvHeaders = rows[0].map(h => h.trim());
+      const fieldMap = []; // index in CSV → field object (or null)
+      for (let ci = 0; ci < csvHeaders.length; ci++) {
+        const match = allFields.find(f => f.label.toLowerCase() === csvHeaders[ci].toLowerCase());
+        fieldMap.push(match || null);
+      }
+
+      // Skip row 1 if it looks like the hints row (starts with allowed values or "(text)")
+      let startRow = 1;
+      if (rows.length > 2) {
+        const firstDataCell = (rows[1][0] || '').toLowerCase();
+        if (firstDataCell.startsWith('(') || firstDataCell.includes(' | ')) startRow = 2;
+      }
+
+      // Parse data rows into flat records
+      const records = [];
+      for (let ri = startRow; ri < rows.length; ri++) {
+        const r = rows[ri];
+        const rec = {};
+        for (let ci = 0; ci < fieldMap.length; ci++) {
+          const f = fieldMap[ci];
+          if (!f) continue;
+          let val = r[ci] ?? '';
+          if (f.type === 'checkbox') val = (val.toLowerCase() === 'true' || val === '1');
+          rec[f.key] = val;
+        }
+        if (Object.values(rec).some(v => v !== '' && v !== false)) records.push(rec);
+      }
+
+      if (!records.length) throw new Error('No data rows found after header.');
+
+      // Group by matrix fields (by "Name" field) to reconstruct items
+      const mainKeys = cat.main.map(f => f.key);
+      const variantKeys = cat.variant.map(f => f.key);
+      const nameKey = cat.main[0].key; // first main field is always Name
+
+      const groups = new Map();
+      for (const rec of records) {
+        const groupKey = rec[nameKey] || `unnamed_${groups.size}`;
+        if (!groups.has(groupKey)) {
+          const main = {};
+          for (const k of mainKeys) main[k] = rec[k] ?? '';
+          groups.set(groupKey, { main, variants: [] });
+        }
+        const variant = {};
+        for (const k of variantKeys) variant[k] = rec[k] ?? '';
+        groups.get(groupKey).variants.push(variant);
+      }
+
+      state.items = Array.from(groups.values());
+      renderItems();
+
+      csvStatus.className = 'status ok';
+      csvStatus.textContent = `Imported ${records.length} row(s) across ${state.items.length} item(s). Review below and submit.`;
+    } catch (err) {
+      csvStatus.className = 'status err';
+      csvStatus.textContent = 'CSV import error: ' + err.message;
+    }
+  };
+  reader.readAsText(file);
+  e.target.value = ''; // reset so re-uploading same file triggers change
 });
 
 $('#add-item').addEventListener('click', () => {

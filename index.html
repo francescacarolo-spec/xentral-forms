@@ -382,7 +382,7 @@ function renderItems() {
       // Field columns
       cat.variant.forEach(f => {
         const td = el('td');
-        td.append(makeInput(f, v[f.key], val => { v[f.key] = val; renderItems(); }));
+        td.append(makeInput(f, v[f.key], val => { v[f.key] = val; if (f.key === 'product_type') renderItems(); }));
         tr.append(td);
       });
       // Remove button
